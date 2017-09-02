@@ -3,6 +3,7 @@ $(function() {
         var self = this;
 
         self.loginState = parameters[0];
+        self.settings = parameters[1];
 
         self.stateString = ko.observable(undefined);
         self.isErrorOrClosed = ko.observable(undefined);
@@ -25,6 +26,7 @@ $(function() {
         });
 
         self.filename = ko.observable(undefined);
+        self.filepath = ko.observable(undefined);
         self.progress = ko.observable(undefined);
         self.filesize = ko.observable(undefined);
         self.filepos = ko.observable(undefined);
@@ -208,10 +210,12 @@ $(function() {
         self._processJobData = function(data) {
             if (data.file) {
                 self.filename(data.file.name);
+                self.filepath(data.file.path);
                 self.filesize(data.file.size);
                 self.sd(data.file.origin == "sdcard");
             } else {
                 self.filename(undefined);
+                self.filepath(undefined);
                 self.filesize(undefined);
                 self.sd(undefined);
             }
@@ -252,76 +256,57 @@ $(function() {
         self._processBusyFiles = function(data) {
             var busyFiles = [];
             _.each(data, function(entry) {
-                if (entry.hasOwnProperty("name") && entry.hasOwnProperty("origin")) {
-                    busyFiles.push(entry.origin + ":" + entry.name);
+                if (entry.hasOwnProperty("path") && entry.hasOwnProperty("origin")) {
+                    busyFiles.push(entry.origin + ":" + entry.path);
                 }
             });
             self.busyFiles(busyFiles);
         };
 
         self.print = function() {
-            var restartCommand = function() {
-                self._jobCommand("restart");
-            };
-
             if (self.isPaused()) {
-                $("#confirmation_dialog .confirmation_dialog_message").text(gettext("This will restart the print job from the beginning."));
-                $("#confirmation_dialog .confirmation_dialog_acknowledge").unbind("click");
-                $("#confirmation_dialog .confirmation_dialog_acknowledge").click(function(e) {e.preventDefault(); $("#confirmation_dialog").modal("hide"); restartCommand(); });
-                $("#confirmation_dialog").modal("show");
+                showConfirmationDialog({
+                    message: gettext("This will restart the print job from the beginning."),
+                    onproceed: function() {
+                        OctoPrint.job.restart();
+                    }
+                });
             } else {
-                self._jobCommand("start");
+                OctoPrint.job.start();
             }
-
         };
 
         self.onlyPause = function() {
-            self.pause("pause");
+            OctoPrint.job.pause();
         };
 
         self.onlyResume = function() {
-            self.pause("resume");
+            OctoPrint.job.resume();
         };
 
         self.pause = function(action) {
-            action = action || "toggle";
-            self._jobCommand("pause", {"action": action});
+            OctoPrint.job.togglePause();
         };
 
         self.cancel = function() {
-            self._jobCommand("cancel");
-        };
-
-        self._jobCommand = function(command, payload, callback) {
-            if (arguments.length == 1) {
-                payload = {};
-                callback = undefined;
-            } else if (arguments.length == 2 && typeof payload === "function") {
-                callback = payload;
-                payload = {};
-            }
-
-            var data = _.extend(payload, {});
-            data.command = command;
-
-            $.ajax({
-                url: API_BASEURL + "job",
-                type: "POST",
-                dataType: "json",
-                contentType: "application/json; charset=UTF-8",
-                data: JSON.stringify(data),
-                success: function(response) {
-                    if (callback != undefined) {
-                        callback();
+            if (!self.settings.feature_printCancelConfirmation()) {
+                OctoPrint.job.cancel();
+            } else {
+                showConfirmationDialog({
+                    message: gettext("This will cancel your print."),
+                    cancel: gettext("No"),
+                    proceed: gettext("Yes"),
+                    onproceed: function() {
+                        OctoPrint.job.cancel();
                     }
-                }
-            });
-        }
+                });
+            }
+        };
     }
 
     OCTOPRINT_VIEWMODELS.push([
         PrinterStateViewModel,
-        ["loginStateViewModel"],
+        ["loginStateViewModel", "settingsViewModel"],
         ["#state_wrapper", "#drop_overlay"]
     ]);
 });
